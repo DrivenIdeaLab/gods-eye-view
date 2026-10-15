@@ -23,7 +23,7 @@ How to read this:
 | **Mapillary** (vector tiles, Graph API, MapillaryJS) | Street Level: coverage lines, image cones and the embedded viewer. Coverage tiles cached for 24 h | Imagery [CC BY-SA 4.0](https://www.mapillary.com/terms); API under the Mapillary terms with a client token | "© Mapillary contributors, CC BY-SA 4.0", shown on the globe while the provider is on |
 | **Google Street View** (Maps JavaScript API) | Street Level, on the Google 3D map only (Google's terms): Google's panorama viewer and nearest-panorama lookups; panorama dates and addresses kept for the session only | Google Maps Platform ToS (your own key + billing; every panorama load is billed) | "Street View imagery © Google" on the globe while the provider is on, and Google's logo and terms in the viewer |
 | **KartaView** (`api.kartaview.org` coverage tiles and photo API, `cdn.kartaview.org` image proxy, `storage*.openstreetcam.org` photos) | Street Level: coverage lines (z13–14 JSON tiles; with the imagery filter on, KartaView's filtered PNG tiles as a mask), nearest-photo lookups, the photo's sequence and the photo itself, fetched by the browser. Keyless; nothing cached beyond the session | Imagery [CC BY-SA 4.0](https://kartaview.org/terms) (KartaView terms §4); the public API needs no token | "© KartaView contributors, CC BY-SA 4.0", shown on the globe while the provider is on |
-| **OpenStreetMap** | Map and place data (roads, military areas and names, ALPR, place search, outlines); via vector tiles, hourly ALPR extract, bundled data, Nominatim and optional self-configured Overpass | [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/) | © OpenStreetMap contributors |
+| **OpenStreetMap** | Map and place data (roads, military areas and names, ALPR, speed cameras, place search, outlines); via vector tiles, hourly ALPR extract, Overpass speed-camera queries, bundled data, Nominatim and optional self-configured Overpass | [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/) | © OpenStreetMap contributors |
 | **Google Map Tiles API** (Photorealistic 3D Tiles) + Places/Geocoding | The 3D globe, voice scene context, and on-demand nearby installation search                                                         | Google Maps Platform ToS (proprietary, your own key + billing)                                                                                                                                                                                                                                                                                        | "Google" / "Google Maps" logo — **shown in-app**, required                                                                                  |
 | **OpenSky Network**                                                   | Primary worldwide live-flight snapshot                                                                                              | Non-commercial research/education license                                                                                                                                                                                                                                                                                                             | Schäfer et al., _"Bringing Up OpenSky"_, IPSN 2014 + opensky-network.org                                                                    |
 | **adsb.lol point API**                                                | Bounded live-flight fallback when OpenSky has no usable snapshot                                                                    | ODbL 1.0                                                                                                                                                                                                                                                                                                                                              | adsb.lol contributors; `api.adsb.lol/v2/lat/{lat}/lon/{lon}/dist/{radius}`                                                                  |
@@ -145,6 +145,19 @@ presented as field-verification dates. Other regions show no ALPR data.
 
 Reads are viewport-bounded, with at most 16 tiles per country, four concurrent
 reads per country, 1,500 displayed records and an hour-long decoded-tile cache.
+
+### Speed camera mapping
+
+The optional Speed Cameras layer reads OpenStreetMap
+`highway=speed_camera` nodes worldwide through the repo's shared
+`/api/overpass` proxy. Like the ALPR layer, it shows community-mapped device
+locations with their tags (speed limit, direction, operator, reference) — not
+live detections, enforcement schedules or exhaustive coverage. Regions where
+contributors have not mapped cameras show no data. Viewport queries are
+city-bounded (max 3°), snapped to a 0.05° grid so pans reuse one accepted
+snapshot, capped at 1,500 records per query with saturation reported, and
+cached server-side by the proxy.
+
 Displayed OSM-derived layers retain a short inline OpenStreetMap credit, plus
 OpenMapTiles while OpenFreeMap tiles are used; Data attribution retains the full credits. ODbL permits
 commercial use with attribution and applicable database share-alike/access
