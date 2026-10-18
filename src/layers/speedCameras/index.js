@@ -192,6 +192,14 @@ export function createSpeedCamerasLayer({ source, overlayHost } = {}) {
 
   async function loadCameras() {
     if (!_enabled || !_viewer) return;
+    if (_notConfigured) {
+      // Latched capability miss: panning and manager refreshes must not
+      // re-query the same unconfigured server; only a fresh enable()
+      // (or page reload) re-probes. Keep the last presented state.
+      renderRecords();
+      setStatus('unavailable');
+      return;
+    }
     clearTimeout(_debounceTimer);
     _debounceTimer = null;
     const box = viewportBox(_viewer);
@@ -212,6 +220,9 @@ export function createSpeedCamerasLayer({ source, overlayHost } = {}) {
         _pendingQueryBox = null;
       }
       renderRecords();
+      // Re-presented records are still OSM-derived data on screen; restore
+      // the credit after a disable/enable cycle on the same view.
+      if (_records.length > 0) showOsmCredit(_viewer, LAYER_ID);
       setStatus(_records.length ? 'ready' : 'empty');
       return;
     }
