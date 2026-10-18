@@ -10,6 +10,18 @@ export const LAYER_ID = 'speed-cameras';
 /** Client endpoint of the repo-owned Overpass proxy (caching + abuse guards). */
 export const OVERPASS_URL = '/api/overpass';
 
+/**
+ * Capability probe endpoint. The proxy serves 503 OVERPASS_NOT_CONFIGURED
+ * when the operator has not configured `OVERPASS_UPSTREAMS`; the layer asks
+ * once per page (30 s retry backoff on failure) so an unconfigured server is
+ * reported as not configured instead of retried on every pan.
+ */
+export const OVERPASS_STATUS_URL = '/api/overpass/status';
+
+/** Re-probe an unknown capability at most this often (mirrors the app probe). */
+export const CAPABILITY_PROBE_TIMEOUT_MS = 3000;
+export const CAPABILITY_PROBE_RETRY_MS = 30_000;
+
 /** Pans settle before a query fires, so quick scrubbing issues no requests. */
 export const REQUEST_DEBOUNCE_MS = 300;
 

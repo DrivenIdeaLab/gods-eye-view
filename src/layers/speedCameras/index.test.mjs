@@ -19,6 +19,17 @@ function fakeViewer() {
     scene: {
       globe: { ellipsoid: Cesium.Ellipsoid.WGS84 },
       canvas: { clientWidth: 800, clientHeight: 600, width: 800, height: 600 },
+      requestRender() {},
+    },
+    creditDisplay: {
+      _static: [],
+      addStaticCredit(credit) {
+        this._static.push(credit);
+      },
+      removeStaticCredit(credit) {
+        const i = this._static.indexOf(credit);
+        if (i >= 0) this._static.splice(i, 1);
+      },
     },
     camera: {
       positionWC: Cesium.Cartesian3.fromDegrees(153.0, -27.5, 25000),
@@ -201,4 +212,72 @@ test('two displays own separate data sources and destruction', async () => {
   assert.equal(a.viewer.dataSources._list.length, 0);
   assert.equal(b.viewer.dataSources._list.length, 1);
   b.layer.destroy();
+});
+
+test('an accepted empty area is reused on pan without a new request', async () => {
+  let fetches = 0;
+  const h = harness({
+    fetch: async () => {
+      fetches++;
+      return { ...SNAPSHOT, records: [] };
+    },
+  });
+  await h.layer.update(h.viewer);
+  assert.equal(h.layer.getStats().status, 'empty');
+  assert.equal(fetches, 1);
+  await h.layer.update(h.viewer);
+  assert.equal(fetches, 1, 'an accepted empty box is authoritative');
+  h.layer.destroy(h.viewer);
+});
+
+test('a not-configured capability latches and stops querying on later views', async () => {
+  let fetches = 0;
+  const notConfigured = Object.assign(
+    new Error('Overpass is not configured (see /api/overpass/status)'),
+    { code: 'OVERPASS_NOT_CONFIGURED', retryable: false },
+  );
+  const h = harness({
+    fetch: async () => {
+      fetches++;
+      if (fetches === 1) throw notConfigured;
+      return SNAPSHOT;
+    },
+  });
+  await h.layer.update(h.viewer);
+  const stats = h.layer.getStats();
+  assert.equal(stats.status, 'unavailable');
+  assert.equal(stats.unavailable, true);
+  assert.match(stats.error, /not configured/);
+  // A pan must not re-query the same unconfigured server.
+  await h.layer.update(h.viewer);
+  assert.equal(fetches, 1, 'capability miss must not re-query');
+  // A fresh enable re-probes (operator may configure upstreams live).
+  h.layer.disable(h.viewer);
+  h.layer.enable(h.viewer);
+  await h.layer.update(h.viewer);
+  assert.equal(fetches, 2);
+  assert.equal(h.layer.getStats().status, 'ready');
+  assert.equal(h.layer.getStats().unavailable, false);
+  h.layer.destroy(h.viewer);
+});
+
+test('the inline OSM credit follows records, disable and destroy', async () => {
+  const h = harness({ fetch: async () => SNAPSHOT });
+  await h.layer.update(h.viewer);
+  assert.equal(
+    h.viewer.creditDisplay._static.length,
+    1,
+    'records on screen carry the inline OSM credit',
+  );
+  h.layer.disable(h.viewer);
+  assert.equal(
+    h.viewer.creditDisplay._static.length,
+    0,
+    'disabling releases the credit',
+  );
+  h.layer.enable(h.viewer);
+  await h.layer.update(h.viewer);
+  assert.equal(h.viewer.creditDisplay._static.length, 1);
+  h.layer.destroy(h.viewer);
+  assert.equal(h.viewer.creditDisplay._static.length, 0);
 });

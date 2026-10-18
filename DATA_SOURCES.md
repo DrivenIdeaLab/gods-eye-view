@@ -229,8 +229,11 @@ locations with their tags (speed limit, direction, operator, reference) — not
 live detections, enforcement schedules or exhaustive coverage. Regions where
 contributors have not mapped cameras show no data. Viewport queries are
 city-bounded (max 3°), snapped to a 0.05° grid so pans reuse one accepted
-snapshot, capped at 1,500 records per query with saturation reported, and
-cached server-side by the proxy.
+snapshot (an accepted empty area is authoritative, too), capped at 1,500
+records per query with saturation reported, and cached server-side by the
+proxy. The layer probes `GET /api/overpass/status` once per page: when no
+`OVERPASS_UPSTREAMS` is configured it reports Overpass as not configured
+instead of retrying, and an empty result never re-queries on pan.
 
 Displayed OSM-derived layers retain a short inline OpenStreetMap credit, plus
 OpenMapTiles while OpenFreeMap tiles are used; Data attribution retains the full credits. ODbL permits

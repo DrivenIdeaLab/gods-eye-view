@@ -1062,5 +1062,15 @@
   "src/ui/flyToDataSource.test.mjs",
   "scripts/assemble-changelog.mjs",
   "src/tooling/changelogFragments.test.mjs",
-  "src/data/gbfsProxyRateLimit.test.mjs"
+  "src/data/gbfsProxyRateLimit.test.mjs",
+  "src/layers/speedCameras/index.js",
+  "src/layers/speedCameras/model.js",
+  "src/layers/speedCameras/source.js",
+  "src/layers/speedCameras/policy.js",
+  "src/layers/speedCameras/records.js",
+  "src/layers/speedCameras/records.test.mjs",
+  "src/layers/speedCameras/index.test.mjs",
+  "src/layers/speedCameras/source.test.mjs",
+  "src/app/layers/speedCameras.js",
+  "src/data/speedCameras.js"
 ]
