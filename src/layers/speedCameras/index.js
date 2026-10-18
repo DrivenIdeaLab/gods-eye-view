@@ -319,8 +319,9 @@ export function createSpeedCamerasLayer({ source, overlayHost } = {}) {
       clearTimeout(_debounceTimer);
       _debounceTimer = null;
       if (_dataSource) _dataSource.show = false;
-      _records = [];
-      _count = 0;
+      // Records and the accepted query box survive disable: the entities are
+      // merely hidden, and a later enable() re-presents them (with the OSM
+      // credit) from the same view instead of re-querying.
       hideOsmCredit(_viewer, LAYER_ID);
       overlayHost.clearSource(OVERLAY_SOURCE_ID);
       overlayHost.setVisible(OVERLAY_SOURCE_ID, false);
