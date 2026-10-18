@@ -143,7 +143,11 @@ test('late refresh cannot publish after disable or destroy', async () => {
     });
     const pending = h.layer.update(h.viewer);
     h.layer[action](h.viewer);
-    assert.equal(signal.aborted, true, `${action} must abort the in-flight read`);
+    assert.equal(
+      signal.aborted,
+      true,
+      `${action} must abort the in-flight read`,
+    );
     resolve(SNAPSHOT);
     assert.equal(await pending, undefined);
     assert.equal(h.layer.getStats().count, 0);
