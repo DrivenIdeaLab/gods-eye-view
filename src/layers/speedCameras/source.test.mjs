@@ -201,17 +201,15 @@ test('fetch rejects incomplete payloads instead of showing empty maps', async ()
       onQuery: () => jsonResponse([], { remark: 'runtime error: timed out' }),
     }),
   });
-  await assert.rejects(
-    source.fetch(BOX),
-    { message: 'Overpass returned an incomplete camera response' },
-  );
+  await assert.rejects(source.fetch(BOX), {
+    message: 'Overpass returned an incomplete camera response',
+  });
   const malformed = createSpeedCameraSource({
     fetchImpl: routedFetch({ onQuery: () => jsonResponse(undefined) }),
   });
-  await assert.rejects(
-    malformed.fetch(BOX),
-    { message: 'Overpass returned an incomplete camera response' },
-  );
+  await assert.rejects(malformed.fetch(BOX), {
+    message: 'Overpass returned an incomplete camera response',
+  });
 });
 
 test('fetch reports saturation and stale provenance', async () => {

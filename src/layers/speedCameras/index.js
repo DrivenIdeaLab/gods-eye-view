@@ -250,8 +250,7 @@ export function createSpeedCamerasLayer({ source, overlayHost } = {}) {
       // The snapshot is OSM-derived data on screen: carry the shared inline
       // OSM credit while any camera of this layer is displayed (owner-keyed,
       // so other OSM layers keep theirs when this one hides).
-      if (_enabled && _records.length > 0)
-        showOsmCredit(_viewer, LAYER_ID);
+      if (_enabled && _records.length > 0) showOsmCredit(_viewer, LAYER_ID);
       else hideOsmCredit(_viewer, LAYER_ID);
       setStatus(records.length ? 'ready' : 'empty');
       console.log(

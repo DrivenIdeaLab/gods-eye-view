@@ -51,37 +51,37 @@ export function createSpeedCameraSource({
     if (capability !== null) return capability;
     if (Date.now() < capabilityRetryAt) return null; // unknown; let the query ask
     capabilityProbe ??= fetchImpl(OVERPASS_STATUS_URL, {
-      signal: AbortSignal.any([
-        AbortSignal.timeout(CAPABILITY_PROBE_TIMEOUT_MS),
-        signal,
-      ].filter(Boolean)),
-    })
-      .then(
-        (response) => {
-          capabilityProbe = null;
-          if (response.ok) {
-            return response
-              .json()
-              .then((payload) => {
-                if (typeof payload?.configured === 'boolean')
-                  return (capability = payload.configured);
-                capabilityRetryAt = Date.now() + CAPABILITY_PROBE_RETRY_MS;
-                return null;
-              })
-              .catch(() => {
-                capabilityRetryAt = Date.now() + CAPABILITY_PROBE_RETRY_MS;
-                return null;
-              });
-          }
-          capabilityRetryAt = Date.now() + CAPABILITY_PROBE_RETRY_MS;
-          return null;
-        },
-        () => {
-          capabilityProbe = null;
-          capabilityRetryAt = Date.now() + CAPABILITY_PROBE_RETRY_MS;
-          return null;
-        },
-      );
+      signal: AbortSignal.any(
+        [AbortSignal.timeout(CAPABILITY_PROBE_TIMEOUT_MS), signal].filter(
+          Boolean,
+        ),
+      ),
+    }).then(
+      (response) => {
+        capabilityProbe = null;
+        if (response.ok) {
+          return response
+            .json()
+            .then((payload) => {
+              if (typeof payload?.configured === 'boolean')
+                return (capability = payload.configured);
+              capabilityRetryAt = Date.now() + CAPABILITY_PROBE_RETRY_MS;
+              return null;
+            })
+            .catch(() => {
+              capabilityRetryAt = Date.now() + CAPABILITY_PROBE_RETRY_MS;
+              return null;
+            });
+        }
+        capabilityRetryAt = Date.now() + CAPABILITY_PROBE_RETRY_MS;
+        return null;
+      },
+      () => {
+        capabilityProbe = null;
+        capabilityRetryAt = Date.now() + CAPABILITY_PROBE_RETRY_MS;
+        return null;
+      },
+    );
     return capabilityProbe;
   }
 

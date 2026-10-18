@@ -135,23 +135,35 @@ test('snapSpeedCameraBox snaps outward and clamps', () => {
 test('boxContains accepts nested boxes and rejects overhang', () => {
   const outer = { south: -28, west: 152, north: -27, east: 153 };
   assert.equal(
-    boxContains(outer, { south: -27.5, west: 152.5, north: -27.2, east: 152.8 }),
+    boxContains(outer, {
+      south: -27.5,
+      west: 152.5,
+      north: -27.2,
+      east: 152.8,
+    }),
     true,
   );
   assert.equal(
-    boxContains(outer, { south: -28.5, west: 152.5, north: -27.2, east: 152.8 }),
+    boxContains(outer, {
+      south: -28.5,
+      west: 152.5,
+      north: -27.2,
+      east: 152.8,
+    }),
     false,
   );
   assert.equal(boxContains(null, outer), false);
 });
 
 test('validateSpeedCameraSnapshot rejects malformed payloads', () => {
+  assert.throws(() => validateSpeedCameraSnapshot({ records: [] }), TypeError);
   assert.throws(
-    () => validateSpeedCameraSnapshot({ records: [] }),
-    TypeError,
-  );
-  assert.throws(
-    () => validateSpeedCameraSnapshot({ records: 'x', stale: false, saturated: false }),
+    () =>
+      validateSpeedCameraSnapshot({
+        records: 'x',
+        stale: false,
+        saturated: false,
+      }),
     TypeError,
   );
   assert.throws(
