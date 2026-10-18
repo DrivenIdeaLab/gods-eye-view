@@ -4,6 +4,26 @@ import { createSpeedCameraSource } from './source.js';
 
 const BOX = { south: -27.7, west: 152.8, north: -27.2, east: 153.3 };
 
+/** Routing fetchImpl: answers the status probe, then the query POST. */
+function routedFetch({ configured = true, onQuery } = {}) {
+  const calls = [];
+  const impl = async (url, init) => {
+    calls.push({
+      url,
+      method: init?.method ?? 'GET',
+      body: init?.body,
+    });
+    if (url === '/api/overpass/status')
+      return {
+        ok: true,
+        json: async () => ({ configured }),
+      };
+    return onQuery(url, init, calls);
+  };
+  impl.calls = calls;
+  return impl;
+}
+
 function jsonResponse(elements, extra = {}) {
   return {
     ok: true,
@@ -13,11 +33,9 @@ function jsonResponse(elements, extra = {}) {
 }
 
 test('fetch resolves normalized, deduplicated camera records', async () => {
-  const calls = [];
-  const source = createSpeedCameraSource({
-    fetchImpl: async (url, init) => {
-      calls.push({ url, body: init.body });
-      return jsonResponse([
+  const fetchImpl = routedFetch({
+    onQuery: (url) =>
+      jsonResponse([
         {
           type: 'node',
           id: 21475863,
@@ -39,13 +57,19 @@ test('fetch resolves normalized, deduplicated camera records', async () => {
           lon: 152.9,
           tags: { highway: 'surveillance' },
         },
-      ]);
-    },
+      ]),
   });
+  const source = createSpeedCameraSource({ fetchImpl });
   const snapshot = await source.fetch(BOX, undefined);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, '/api/overpass');
-  const query = decodeURIComponent(calls[0].body);
+  assert.equal(fetchImpl.calls.length, 2);
+  assert.equal(fetchImpl.calls[0].url, '/api/overpass/status');
+  assert.equal(fetchImpl.calls[1].url, '/api/overpass');
+  assert.equal(fetchImpl.calls[1].method, 'POST');
+  const query = decodeURIComponent(
+    fetchImpl.calls.find((c) => c.url === '/api/overpass').method === 'POST'
+      ? fetchImpl.calls.find((c) => c.url === '/api/overpass').body
+      : undefined,
+  );
   assert.match(query, /node\["highway"="speed_camera"\]/);
   assert.match(query, /out body 1500;/);
   assert.equal(snapshot.records.length, 1);
@@ -56,11 +80,12 @@ test('fetch resolves normalized, deduplicated camera records', async () => {
 });
 
 test('fetch rejects unbounded and malformed boxes', async () => {
-  const source = createSpeedCameraSource({
-    fetchImpl: async () => {
+  const fetchImpl = routedFetch({
+    onQuery: () => {
       throw new Error('must not be called');
     },
   });
+  const source = createSpeedCameraSource({ fetchImpl });
   await assert.rejects(source.fetch(null), TypeError);
   await assert.rejects(
     source.fetch({ south: -90, west: -180, north: 90, east: 180 }),
@@ -69,6 +94,11 @@ test('fetch rejects unbounded and malformed boxes', async () => {
   await assert.rejects(
     source.fetch({ south: 'x', west: 0, north: 1, east: 2 }),
     TypeError,
+  );
+  assert.equal(
+    fetchImpl.calls.length,
+    0,
+    'a malformed box must not probe or query',
   );
 });
 
@@ -79,26 +109,104 @@ test('fetch maps HTTP failures to honest error states', async () => {
     [500, 'Overpass temporarily unavailable'],
   ]) {
     const source = createSpeedCameraSource({
-      fetchImpl: async () => ({
-        ok: false,
-        status,
-        body: { cancel: async () => {} },
+      fetchImpl: routedFetch({
+        onQuery: async () => ({
+          ok: false,
+          status,
+          json: async () => ({}),
+        }),
       }),
     });
     await assert.rejects(source.fetch(BOX), { message });
   }
 });
 
+test('an unconfigured proxy answers not-configured without a POST, once probed', async () => {
+  const fetchImpl = routedFetch({
+    configured: false,
+    onQuery: () => {
+      throw new Error('the query POST must not happen');
+    },
+  });
+  const source = createSpeedCameraSource({ fetchImpl });
+  for (let i = 0; i < 3; i++) {
+    await assert.rejects(source.fetch(BOX), (error) => {
+      assert.match(error.message, /Overpass is not configured/);
+      assert.equal(error.code, 'OVERPASS_NOT_CONFIGURED');
+      assert.equal(error.retryable, false);
+      return true;
+    });
+  }
+  assert.equal(
+    fetchImpl.calls.filter((call) => call.url === '/api/overpass').length,
+    0,
+  );
+  assert.equal(
+    fetchImpl.calls.filter((call) => call.url === '/api/overpass/status')
+      .length,
+    1,
+    'the capability decision is memoized for the source lifetime',
+  );
+});
+
+test('a 503 OVERPASS_NOT_CONFIGURED POST latches the capability', async () => {
+  let queries = 0;
+  const source = createSpeedCameraSource({
+    fetchImpl: routedFetch({
+      // Probe says configured, but the POST still answers the capability miss
+      // (an older server without the status route, or a race).
+      onQuery: async () => {
+        queries++;
+        if (queries === 1)
+          return {
+            ok: false,
+            status: 503,
+            json: async () => ({
+              error: 'Detailed OpenStreetMap queries are not configured',
+              code: 'OVERPASS_NOT_CONFIGURED',
+              retryable: false,
+            }),
+          };
+        throw new Error('the second query must not happen');
+      },
+    }),
+  });
+  await assert.rejects(source.fetch(BOX), (error) => {
+    assert.match(error.message, /Overpass is not configured/);
+    assert.equal(error.retryable, false);
+    return true;
+  });
+  await assert.rejects(source.fetch(BOX), /Overpass is not configured/);
+  assert.equal(queries, 1, 'the latched miss short-circuits later fetches');
+});
+
+test('a failed probe falls through to the query (older server)', async () => {
+  const calls = [];
+  const source = createSpeedCameraSource({
+    fetchImpl: async (url, init) => {
+      calls.push(url);
+      if (url === '/api/overpass/status')
+        return { ok: false, status: 404, json: async () => ({}) };
+      return jsonResponse([]);
+    },
+  });
+  const snapshot = await source.fetch(BOX, undefined);
+  assert.deepEqual(calls, ['/api/overpass/status', '/api/overpass']);
+  assert.equal(snapshot.records.length, 0);
+});
+
 test('fetch rejects incomplete payloads instead of showing empty maps', async () => {
   const source = createSpeedCameraSource({
-    fetchImpl: async () => jsonResponse([], { remark: 'runtime error: timed out' }),
+    fetchImpl: routedFetch({
+      onQuery: () => jsonResponse([], { remark: 'runtime error: timed out' }),
+    }),
   });
   await assert.rejects(
     source.fetch(BOX),
     { message: 'Overpass returned an incomplete camera response' },
   );
   const malformed = createSpeedCameraSource({
-    fetchImpl: async () => jsonResponse(undefined),
+    fetchImpl: routedFetch({ onQuery: () => jsonResponse(undefined) }),
   });
   await assert.rejects(
     malformed.fetch(BOX),
@@ -115,10 +223,12 @@ test('fetch reports saturation and stale provenance', async () => {
     tags: { highway: 'speed_camera' },
   }));
   const source = createSpeedCameraSource({
-    fetchImpl: async () => ({
-      ok: true,
-      headers: { get: () => 'STALE' },
-      json: async () => ({ version: 0.6, elements }),
+    fetchImpl: routedFetch({
+      onQuery: () => ({
+        ok: true,
+        headers: { get: () => 'STALE' },
+        json: async () => ({ version: 0.6, elements }),
+      }),
     }),
   });
   const snapshot = await source.fetch(BOX, undefined);
@@ -129,17 +239,24 @@ test('fetch reports saturation and stale provenance', async () => {
 
 test('fetch honors abort signals mid-flight', async () => {
   const controller = new AbortController();
+  let queryStarted;
+  const queryStartedPromise = new Promise((r) => (queryStarted = r));
   const source = createSpeedCameraSource({
-    fetchImpl: (url, init) =>
-      new Promise((_resolve, reject) => {
-        init.signal.addEventListener('abort', () => {
-          const error = new Error('aborted');
-          error.name = 'AbortError';
-          reject(error);
+    fetchImpl: routedFetch({
+      onQuery: (url, init) => {
+        queryStarted();
+        return new Promise((_resolve, reject) => {
+          init.signal.addEventListener('abort', () => {
+            const error = new Error('aborted');
+            error.name = 'AbortError';
+            reject(error);
+          });
         });
-      }),
+      },
+    }),
   });
   const pending = source.fetch(BOX, controller.signal);
+  await queryStartedPromise; // the probe resolves first; abort mid-query
   controller.abort();
   await assert.rejects(pending, { name: 'AbortError' });
 });

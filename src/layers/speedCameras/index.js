@@ -1,4 +1,5 @@
 import * as Cesium from 'cesium';
+import { showOsmCredit, hideOsmCredit } from '../../data/dataCredits.js';
 import {
   LAYER_ID,
   REQUEST_DEBOUNCE_MS,
@@ -10,6 +11,7 @@ import {
   boxContains,
   validateSpeedCameraSnapshot,
 } from './records.js';
+import { msg } from '../../i18n/marker.js';
 import {
   OVERLAY_SOURCE_ID,
   OVERLAY_COHORT_LIMIT,
@@ -48,6 +50,9 @@ export function createSpeedCamerasLayer({ source, overlayHost } = {}) {
   let _lastUpdate = null;
   let _lastError = null;
   let _enabled = false;
+  // Latched when the source reports OVERPASS_NOT_CONFIGURED (retryable:false):
+  // panning must not re-query; only an explicit refresh (update) re-probes.
+  let _notConfigured = false;
 
   function viewportBox(viewer) {
     const camera = viewer?.camera;
@@ -102,11 +107,10 @@ export function createSpeedCamerasLayer({ source, overlayHost } = {}) {
   }
 
   function canReuse(box) {
-    return (
-      _lastQueryBox != null &&
-      boxContains(_lastQueryBox, box) &&
-      _records.length > 0
-    );
+    // An accepted snapshot authoritatively covers its snapped query box —
+    // including an empty one (a camera-free area must not re-query on pan;
+    // only moving outside the box or an explicit refresh re-queries).
+    return _lastQueryBox != null && boxContains(_lastQueryBox, box);
   }
 
   /** Publish accepted records to the entity collection and overlay host. */
@@ -168,6 +172,12 @@ export function createSpeedCamerasLayer({ source, overlayHost } = {}) {
 
   function scheduleLoad() {
     clearTimeout(_debounceTimer);
+    if (_notConfigured) {
+      // Capability miss: no debounced re-query on pan. The status line already
+      // says Overpass is not configured; an explicit update() re-probes.
+      _debounceTimer = null;
+      return;
+    }
     const box = viewportBox(_viewer);
     if (box && canReuse(box)) {
       _debounceTimer = null;
@@ -224,7 +234,14 @@ export function createSpeedCamerasLayer({ source, overlayHost } = {}) {
       _lastQueryBox = queryBox;
       _lastUpdate = Date.now();
       _lastError = null;
+      _notConfigured = false;
       renderRecords();
+      // The snapshot is OSM-derived data on screen: carry the shared inline
+      // OSM credit while any camera of this layer is displayed (owner-keyed,
+      // so other OSM layers keep theirs when this one hides).
+      if (_enabled && _records.length > 0)
+        showOsmCredit(_viewer, LAYER_ID);
+      else hideOsmCredit(_viewer, LAYER_ID);
       setStatus(records.length ? 'ready' : 'empty');
       console.log(
         `[Data:SpeedCameras] Updated: ${records.length} cameras in view`,
@@ -234,8 +251,15 @@ export function createSpeedCamerasLayer({ source, overlayHost } = {}) {
       if (request.signal.aborted || _request !== request || !_enabled) return;
       console.warn('[Data:SpeedCameras] Fetch error:', e);
       // Failed queries never replace the last successful box or its records.
-      _lastError = e?.message || 'Speed camera source unavailable';
-      setStatus('error');
+      _lastError = e?.message || msg('Speed camera source unavailable');
+      if (e?.code === 'OVERPASS_NOT_CONFIGURED' || e?.retryable === false) {
+        // Permanent capability miss: latch so pans stop querying and the
+        // status reads unavailable rather than retrying into the same 503.
+        _notConfigured = true;
+        setStatus('unavailable');
+      } else {
+        setStatus('error');
+      }
     } finally {
       if (_request === request) _request = null;
     }
@@ -267,6 +291,9 @@ export function createSpeedCamerasLayer({ source, overlayHost } = {}) {
     enable() {
       if (_enabled) return;
       _enabled = true;
+      // A fresh enable re-probes the capability: an operator may configure
+      // OVERPASS_UPSTREAMS without a page reload (dev server / standalone).
+      _notConfigured = false;
       if (_dataSource) _dataSource.show = true;
       overlayHost.setVisible(OVERLAY_SOURCE_ID, true);
       // DataLayerManager calls update() right after enable(); it owns the
@@ -283,6 +310,7 @@ export function createSpeedCamerasLayer({ source, overlayHost } = {}) {
       if (_dataSource) _dataSource.show = false;
       _records = [];
       _count = 0;
+      hideOsmCredit(_viewer, LAYER_ID);
       overlayHost.clearSource(OVERLAY_SOURCE_ID);
       overlayHost.setVisible(OVERLAY_SOURCE_ID, false);
     },
@@ -300,6 +328,7 @@ export function createSpeedCamerasLayer({ source, overlayHost } = {}) {
       _debounceTimer = null;
       _moveEndRemove?.();
       _moveEndRemove = null;
+      hideOsmCredit(viewer, LAYER_ID);
       overlayHost.clearSource(OVERLAY_SOURCE_ID);
       overlayHost.setVisible(OVERLAY_SOURCE_ID, false);
       if (_dataSource) {
@@ -333,6 +362,7 @@ export function createSpeedCamerasLayer({ source, overlayHost } = {}) {
         status: _status,
         lastUpdate: _lastUpdate,
         error: _lastError,
+        unavailable: _notConfigured,
       };
     },
   };

@@ -37,7 +37,9 @@ test('the complete Realtime tool payload pins the manifest-generated layer relea
     // omit top-level anyOf (OpenAI rejects it). Contacts list routing preserves
     // requested radius and center authority in descriptions only.
     // Street Level and GNSS extend the manifest; tracked and analyst aircraft describe broadcasts.
-    '9f0207622fe7ce45651062585a5d97b52340de031b4ca0d522f4464fa88cc9aa',
+    // Air quality (ECCC AQHI) extends the manifest.
+    // Speed Cameras extends the manifest.
+    '8515de0deb9d77f3935c3f699d12c6e8010f343087eb0c8cf7bf6b3b25604e81',
   );
 });
 
