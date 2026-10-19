@@ -51,7 +51,8 @@ export function createSpeedCamerasLayer({ source, overlayHost } = {}) {
   let _lastError = null;
   let _enabled = false;
   // Latched when the source reports OVERPASS_NOT_CONFIGURED (retryable:false):
-  // panning must not re-query; only an explicit refresh (update) re-probes.
+  // panning must not re-query; only a fresh enable() re-probes (which also
+  // resets the source's capability answer).
   let _notConfigured = false;
 
   function viewportBox(viewer) {
@@ -174,7 +175,7 @@ export function createSpeedCamerasLayer({ source, overlayHost } = {}) {
     clearTimeout(_debounceTimer);
     if (_notConfigured) {
       // Capability miss: no debounced re-query on pan. The status line already
-      // says Overpass is not configured; an explicit update() re-probes.
+      // says Overpass is not configured; a fresh enable() re-probes.
       _debounceTimer = null;
       return;
     }
@@ -194,8 +195,8 @@ export function createSpeedCamerasLayer({ source, overlayHost } = {}) {
     if (!_enabled || !_viewer) return;
     if (_notConfigured) {
       // Latched capability miss: panning and manager refreshes must not
-      // re-query the same unconfigured server; only a fresh enable()
-      // (or page reload) re-probes. Keep the last presented state.
+      // re-query the same unconfigured server; a fresh enable() (or page
+      // reload) re-probes. Keep the last presented state.
       renderRecords();
       setStatus('unavailable');
       return;
@@ -264,7 +265,8 @@ export function createSpeedCamerasLayer({ source, overlayHost } = {}) {
       _lastError = e?.message || msg('Speed camera source unavailable');
       if (e?.code === 'OVERPASS_NOT_CONFIGURED' || e?.retryable === false) {
         // Permanent capability miss: latch so pans stop querying and the
-        // status reads unavailable rather than retrying into the same 503.
+        // status reads unavailable. The source re-probes after its retry
+        // window (or on a fresh enable) — until it flips, pans stay quiet.
         _notConfigured = true;
         setStatus('unavailable');
       } else {
@@ -304,6 +306,7 @@ export function createSpeedCamerasLayer({ source, overlayHost } = {}) {
       // A fresh enable re-probes the capability: an operator may configure
       // OVERPASS_UPSTREAMS without a page reload (dev server / standalone).
       _notConfigured = false;
+      source.resetCapability?.();
       if (_dataSource) _dataSource.show = true;
       overlayHost.setVisible(OVERLAY_SOURCE_ID, true);
       // DataLayerManager calls update() right after enable(); it owns the

@@ -6,6 +6,10 @@ const BOX = { south: -27.7, west: 152.8, north: -27.2, east: 153.3 };
 
 /** Routing fetchImpl: answers the status probe, then the query POST. */
 function routedFetch({ configured = true, onQuery } = {}) {
+  // `configured` may be a boolean or a () => boolean for tests that flip the
+  // server's answer mid-flight.
+  const configuredNow = () =>
+    typeof configured === 'function' ? configured() : configured;
   const calls = [];
   const impl = async (url, init) => {
     calls.push({
@@ -16,7 +20,7 @@ function routedFetch({ configured = true, onQuery } = {}) {
     if (url === '/api/overpass/status')
       return {
         ok: true,
-        json: async () => ({ configured }),
+        json: async () => ({ configured: configuredNow() }),
       };
     return onQuery(url, init, calls);
   };
@@ -107,6 +111,9 @@ test('fetch maps HTTP failures to honest error states', async () => {
     [429, 'Overpass rate-limited'],
     [504, 'Overpass timed out'],
     [500, 'Overpass temporarily unavailable'],
+    // A plain 503 (the proxy busy, no OVERPASS_NOT_CONFIGURED code) must not
+    // be labelled "not configured" — that label belongs to the payload code.
+    [503, 'Overpass temporarily unavailable'],
   ]) {
     const source = createSpeedCameraSource({
       fetchImpl: routedFetch({
@@ -121,11 +128,41 @@ test('fetch maps HTTP failures to honest error states', async () => {
   }
 });
 
-test('an unconfigured proxy answers not-configured without a POST, once probed', async () => {
+test("a busy proxy's plain 503 keeps retryable:true and does not latch", async () => {
+  let queries = 0;
+  const source = createSpeedCameraSource({
+    fetchImpl: routedFetch({
+      onQuery: async () => {
+        queries++;
+        return {
+          ok: false,
+          status: 503,
+          json: async () => ({
+            error: 'Overpass proxy busy — try again shortly',
+          }),
+        };
+      },
+    }),
+  });
+  await assert.rejects(source.fetch(BOX), (error) => {
+    assert.match(error.message, /temporarily unavailable/);
+    assert.doesNotMatch(error.message, /not configured/);
+    assert.equal(error.retryable, true);
+    assert.equal(error.code, undefined);
+    return true;
+  });
+  // Not latched: the next fetch asks again (the proxy may free up).
+  await assert.rejects(source.fetch(BOX), /temporarily unavailable/);
+  assert.equal(queries, 2);
+});
+
+test('an unconfigured proxy answers not-configured without a POST, once probed', async (t) => {
+  let configured = false;
   const fetchImpl = routedFetch({
-    configured: false,
+    configured: () => configured,
     onQuery: () => {
-      throw new Error('the query POST must not happen');
+      if (!configured) throw new Error('the query POST must not happen');
+      return jsonResponse([]);
     },
   });
   const source = createSpeedCameraSource({ fetchImpl });
@@ -145,7 +182,56 @@ test('an unconfigured proxy answers not-configured without a POST, once probed',
     fetchImpl.calls.filter((call) => call.url === '/api/overpass/status')
       .length,
     1,
-    'the capability decision is memoized for the source lifetime',
+    'the miss holds within the retry window — no probe or POST per pan',
+  );
+  // Past the retry window the miss is re-probed; a configured answer then
+  // flows through to the query POST (an operator may set upstreams live).
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  t.mock.timers.tick(30_001);
+  configured = true;
+  const snapshot = await source.fetch(BOX, undefined);
+  assert.equal(snapshot.records.length, 0);
+  assert.equal(
+    fetchImpl.calls.filter((call) => call.url === '/api/overpass').length,
+    1,
+    'the flipped probe lets the query through',
+  );
+});
+
+test('resetCapability forgets the answer so the next fetch re-probes', async () => {
+  let configured = false;
+  const fetchImpl = routedFetch({
+    configured: () => configured,
+    onQuery: () => jsonResponse([]),
+  });
+  const source = createSpeedCameraSource({ fetchImpl });
+  await assert.rejects(source.fetch(BOX), /Overpass is not configured/);
+  assert.equal(
+    fetchImpl.calls.filter((call) => call.url === '/api/overpass/status')
+      .length,
+    1,
+  );
+  // Without a reset (and inside the retry window) the miss still holds.
+  await assert.rejects(source.fetch(BOX), /Overpass is not configured/);
+  assert.equal(
+    fetchImpl.calls.filter((call) => call.url === '/api/overpass/status')
+      .length,
+    1,
+  );
+  // The layer calls this on a fresh enable; the next fetch asks again.
+  source.resetCapability();
+  configured = true;
+  const snapshot = await source.fetch(BOX, undefined);
+  assert.equal(snapshot.records.length, 0);
+  assert.equal(
+    fetchImpl.calls.filter((call) => call.url === '/api/overpass/status')
+      .length,
+    2,
+    'resetCapability forces a fresh probe',
+  );
+  assert.equal(
+    fetchImpl.calls.filter((call) => call.url === '/api/overpass').length,
+    1,
   );
 });
 

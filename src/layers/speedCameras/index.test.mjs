@@ -265,6 +265,42 @@ test('a not-configured capability latches and stops querying on later views', as
   h.layer.destroy(h.viewer);
 });
 
+test('a fresh enable resets the source capability so it re-probes', async () => {
+  // The real source latches configured:false for its retry window; only
+  // resetCapability() (called by enable) makes the next fetch ask again.
+  const { createSpeedCameraSource } = await import('./source.js');
+  let configured = false;
+  const probeCalls = [];
+  const fetchImpl = async (url, init) => {
+    if (url === '/api/overpass/status') {
+      probeCalls.push(url);
+      return { ok: true, json: async () => ({ configured }) };
+    }
+    return {
+      ok: true,
+      headers: { get: () => 'MISS' },
+      json: async () => ({ version: 0.6, elements: [] }),
+    };
+  };
+  const source = createSpeedCameraSource({ fetchImpl });
+  const h = harness(source);
+  await h.layer.update(h.viewer);
+  assert.equal(h.layer.getStats().status, 'unavailable');
+  assert.equal(probeCalls.length, 1);
+  // Panning inside the retry window: no probe, no POST.
+  await h.layer.update(h.viewer);
+  assert.equal(probeCalls.length, 1);
+  // The operator configures upstreams live, then the user re-enables.
+  configured = true;
+  h.layer.disable(h.viewer);
+  h.layer.enable(h.viewer);
+  await h.layer.update(h.viewer);
+  assert.equal(probeCalls.length, 2, 'enable reset the capability latch');
+  assert.equal(h.layer.getStats().status, 'empty');
+  assert.equal(h.layer.getStats().unavailable, false);
+  h.layer.destroy(h.viewer);
+});
+
 test('the inline OSM credit follows records, disable and destroy', async () => {
   const h = harness({ fetch: async () => SNAPSHOT });
   await h.layer.update(h.viewer);

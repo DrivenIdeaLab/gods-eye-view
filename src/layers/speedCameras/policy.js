@@ -13,8 +13,9 @@ export const OVERPASS_URL = '/api/overpass';
 /**
  * Capability probe endpoint. The proxy serves 503 OVERPASS_NOT_CONFIGURED
  * when the operator has not configured `OVERPASS_UPSTREAMS`; the layer asks
- * once per page (30 s retry backoff on failure) so an unconfigured server is
- * reported as not configured instead of retried on every pan.
+ * before the first query and re-asks at most every 30 s while the answer is
+ * not configured, so an unconfigured server is reported as not configured
+ * instead of retried on every pan.
  */
 export const OVERPASS_STATUS_URL = '/api/overpass/status';
 
